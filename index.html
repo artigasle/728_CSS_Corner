@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CSS In/Out-Processing Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<!-- SheetJS for Excel parsing -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<!-- Mammoth.js for Word .docx parsing -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<style>
+  :root {
+    --usaf-blue: #00205B;
+    --usaf-blue-dark: #001540;
+    --usaf-gold: #FFB81C;
+    --ink: #0d1117;
+    --ink-2: #1a1f2e;
+    --paper: #f4f6fa;
+    --paper-2: #e8ecf3;
+    --line: #d3d9e3;
+    --muted: #5b6878;
+    --green: #1f7a3a;
+    --amber: #c47a00;
+    --red: #b3261e;
+    --green-bg: #e3f4e8;
+    --amber-bg: #fff4e0;
+    --red-bg: #fbe5e3;
+    --shadow: 0 1px 2px rgba(0,32,91,.06), 0 4px 14px rgba(0,32,91,.06);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--paper); color: var(--ink); font-family: 'Manrope', sans-serif; font-size: 15px; line-height: 1.5; }
+  button, input, select, textarea { font-family: inherit; font-size: inherit; }
+  button { cursor: pointer; }
+
+  /* ========== TOP BAR ========== */
+  header.appbar {
+    background: var(--usaf-blue);
+    color: white;
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 3px solid var(--usaf-gold);
+    box-shadow: 0 2px 8px rgba(0,0,0,.12);
+    position: sticky; top: 0; z-index: 50;
+  }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .brand-mark {
+    width: 38px; height: 38px; border: 2px solid var(--usaf-gold);
+    display: grid; place-items: center;
+    font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 14px;
+    color: var(--usaf-gold); letter-spacing: -.5px;
+  }
+  .brand h1 { font-size: 17px; font-weight: 700; letter-spacing: .3px; }
+  .brand p { font-size: 11px; opacity: .75; font-family: 'JetBrains Mono', monospace; letter-spacing: 1.2px; text-transform: uppercase; }
+  .appbar-actions { display: flex; gap: 8px; }
+  .appbar-actions button {
+    background: transparent; color: white; border: 1px solid rgba(255,255,255,.25);
+    padding: 7px 14px; font-size: 12px; font-weight: 600; letter-spacing: .4px;
+    text-transform: uppercase; transition: all .15s;
+  }
+  .appbar-actions button:hover { background: rgba(255,184,28,.15); border-color: var(--usaf-gold); }
+
+  /* ========== TAB NAV ========== */
+  nav.tabs {
+    background: white;
+    border-bottom: 1px solid var(--line);
+    padding: 0 28px;
+    display: flex;
+    gap: 4px;
+  }
+  .tab {
+    padding: 14px 18px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: .3px;
+    text-transform: uppercase;
+    border-bottom: 3px solid transparent;
+    transition: all .15s;
+  }
+  .tab:hover { color: var(--ink); }
+  .tab.active { color: var(--usaf-blue); border-bottom-color: var(--usaf-gold); }
+
+  /* ========== MAIN LAYOUT ========== */
+  main { padding: 28px; max-width: 1400px; margin: 0 auto; }
+  .panel { display: none; }
+  .panel.active { display: block; animation: fade .2s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ========== DASHBOARD ========== */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .stat-card {
+    background: white;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 18px 20px;
+    box-shadow: var(--shadow);
+    position: relative;
+    overflow: hidden;
+  }
+  .stat-card::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: var(--usaf-blue);
+  }
+  .stat-card.green::before { background: var(--green); }
+  .stat-card.amber::before { background: var(--amber); }
+  .stat-card.red::before { background: var(--red); }
+  .stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); font-weight: 600; }
+  .stat-value { font-size: 32px; font-weight: 800; color: var(--ink); margin-top: 4px; font-family: 'JetBrains Mono', monospace; }
+  .stat-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  /* ========== SECTION HEADERS ========== */
+  .section-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px;
+  }
+  .section-header h2 {
+    font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px;
+    color: var(--usaf-blue);
+  }
+  .section-header .actions { display: flex; gap: 8px; }
+
+  /* ========== BUTTONS ========== */
+  .btn {
+    padding: 8px 16px; border: 1px solid var(--line); background: white;
+    color: var(--ink); font-size: 12px; font-weight: 600;
+    letter-spacing: .4px; text-transform: uppercase;
+    border-radius: 3px; transition: all .15s;
+  }
+  .btn:hover { background: var(--paper-2); }
+  .btn-primary { background: var(--usaf-blue); color: white; border-color: var(--usaf-blue); }
+  .btn-primary:hover { background: var(--usaf-blue-dark); }
+  .btn-gold { background: var(--usaf-gold); color: var(--usaf-blue); border-color: var(--usaf-gold); font-weight: 700; }
+  .btn-gold:hover { filter: brightness(.95); }
+  .btn-danger { background: white; color: var(--red); border-color: var(--red); }
+  .btn-danger:hover { background: var(--red-bg); }
+  .btn-sm { padding: 5px 10px; font-size: 11px; }
+
+  /* ========== TABLES ========== */
+  .table-wrap {
+    background: white;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  table { width: 100%; border-collapse: collapse; }
+  thead { background: var(--paper-2); }
+  th {
+    text-align: left; padding: 11px 16px;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); font-weight: 700;
+    border-bottom: 1px solid var(--line);
+  }
+  td {
+    padding: 13px 16px; border-bottom: 1px solid var(--line);
+    font-size: 14px; vertical-align: middle;
+  }
+  tbody tr { transition: background .1s; }
+  tbody tr:hover { background: var(--paper); }
+  tbody tr:last-child td { border-bottom: none; }
+
+  /* ========== STATUS PILLS ========== */
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .pill.green { background: var(--green-bg); color: var(--green); }
+  .pill.amber { background: var(--amber-bg); color: var(--amber); }
+  .pill.red { background: var(--red-bg); color: var(--red); }
+  .pill.blue { background: #e0e8f6; color: var(--usaf-blue); }
+  .pill.gray { background: var(--paper-2); color: var(--muted); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+  /* ========== TYPE BADGE ========== */
+  .type-badge {
+    display: inline-block; padding: 2px 8px;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    font-weight: 700; letter-spacing: .8px;
+    border-radius: 2px;
+  }
+  .type-in { background: var(--usaf-blue); color: white; }
+  .type-out { background: var(--usaf-gold); color: var(--usaf-blue); }
+
+  /* ========== MODAL ========== */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(13, 17, 23, .55);
+    display: none; align-items: center; justify-content: center;
+    z-index: 100; padding: 20px;
+  }
+  .modal-backdrop.active { display: flex; }
+  .modal {
+    background: white; border-radius: 6px; max-width: 700px; width: 100%;
+    max-height: 90vh; overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,.3);
+  }
+  .modal-head {
+    padding: 18px 24px; border-bottom: 1px solid var(--line);
+    background: var(--usaf-blue); color: white;
+    display: flex; justify-content: space-between; align-items: center;
+    border-radius: 6px 6px 0 0;
+  }
+  .modal-head h3 { font-size: 14px; text-transform: uppercase; letter-spacing: 1.2px; font-weight: 700; }
+  .modal-close {
+    background: none; border: none; color: white; font-size: 22px; line-height: 1;
+    padding: 0; width: 26px; height: 26px;
+  }
+  .modal-body { padding: 24px; }
+  .modal-foot {
+    padding: 14px 24px; border-top: 1px solid var(--line);
+    display: flex; justify-content: flex-end; gap: 8px;
+    background: var(--paper);
+  }
+
+  /* ========== FORMS ========== */
+  .form-row { margin-bottom: 16px; }
+  .form-row.two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  label {
+    display: block; font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .8px; color: var(--muted); margin-bottom: 5px;
+  }
+  input[type="text"], input[type="date"], input[type="email"], select, textarea {
+    width: 100%; padding: 9px 12px; border: 1px solid var(--line); border-radius: 3px;
+    background: white; color: var(--ink); transition: border-color .15s;
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--usaf-blue); }
+  textarea { resize: vertical; min-height: 80px; font-family: inherit; }
+
+  /* ========== CHECKLIST PICKER ========== */
+  .checklist-picker {
+    border: 1px solid var(--line); border-radius: 3px;
+    max-height: 360px; overflow-y: auto;
+    background: var(--paper);
+  }
+  .picker-group {
+    border-bottom: 1px solid var(--line);
+  }
+  .picker-group:last-child { border-bottom: none; }
+  .picker-group-head {
+    padding: 10px 14px; background: var(--paper-2);
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--usaf-blue);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .picker-group-head .select-all {
+    font-size: 10px; color: var(--muted); cursor: pointer; text-decoration: underline;
+    background: none; border: none; text-transform: uppercase; letter-spacing: .5px;
+  }
+  .picker-item {
+    padding: 7px 14px; display: flex; align-items: center; gap: 10px;
+    background: white; border-top: 1px solid var(--line);
+  }
+  .picker-item:hover { background: var(--paper); }
+  .picker-item input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--usaf-blue); }
+  .picker-item label { margin: 0; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 13px; color: var(--ink); cursor: pointer; flex: 1; }
+  .picker-item .item-meta { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+
+  /* ========== PERSON DETAIL ========== */
+  .person-detail-head {
+    background: white; border: 1px solid var(--line); border-radius: 4px;
+    padding: 22px 24px; margin-bottom: 18px;
+    box-shadow: var(--shadow);
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 20px; flex-wrap: wrap;
+  }
+  .pdh-info h2 { font-size: 22px; font-weight: 800; color: var(--ink); margin-bottom: 4px; }
+  .pdh-meta { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted); letter-spacing: .3px; }
+  .pdh-meta span { margin-right: 16px; }
+  .pdh-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .req-row {
+    display: grid; grid-template-columns: 1fr 180px 130px 140px 130px;
+    gap: 14px; padding: 12px 16px; align-items: center;
+    border-bottom: 1px solid var(--line);
+    background: white;
+    transition: background .1s;
+  }
+  .req-row:hover { background: var(--paper); }
+  .req-row:last-child { border-bottom: none; }
+  .req-name { font-weight: 600; font-size: 14px; }
+  .req-cat { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: .5px; }
+  .req-row input[type="date"] { padding: 5px 8px; font-size: 12px; }
+  .req-row select { padding: 5px 8px; font-size: 12px; }
+
+  /* ========== NOTIFICATIONS PANEL ========== */
+  .notif-list { display: flex; flex-direction: column; gap: 10px; }
+  .notif-card {
+    background: white; border: 1px solid var(--line); border-left: 4px solid var(--amber);
+    border-radius: 3px; padding: 14px 18px;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 16px;
+    box-shadow: var(--shadow);
+  }
+  .notif-card.red { border-left-color: var(--red); }
+  .notif-card.green { border-left-color: var(--green); }
+  .notif-info { flex: 1; }
+  .notif-info h4 { font-size: 14px; font-weight: 700; margin-bottom: 2px; }
+  .notif-info p { font-size: 13px; color: var(--muted); }
+  .notif-meta { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
+
+  /* ========== EMPTY STATE ========== */
+  .empty {
+    padding: 60px 20px; text-align: center; color: var(--muted);
+    background: white; border: 1px dashed var(--line); border-radius: 4px;
+  }
+  .empty-mark { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 2px; color: var(--usaf-gold); }
+  .empty h3 { font-size: 18px; color: var(--ink); margin: 8px 0; font-weight: 700; }
+  .empty p { font-size: 13px; }
+
+  /* ========== REPORT VIEW ========== */
+  .report-output {
+    background: white; border: 1px solid var(--line); border-radius: 4px;
+    padding: 32px 36px; box-shadow: var(--shadow);
+    font-family: 'Manrope', sans-serif; line-height: 1.6;
+  }
+  .report-output h1 { font-size: 18px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--usaf-blue); border-bottom: 2px solid var(--usaf-gold); padding-bottom: 8px; margin-bottom: 16px; }
+  .report-output h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--usaf-blue); margin: 18px 0 8px; }
+  .report-output table { margin: 8px 0; font-size: 12px; }
+  .report-output th, .report-output td { padding: 6px 10px; }
+  .report-output .meta { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); margin-bottom: 16px; letter-spacing: .3px; }
+
+  /* ========== UTILITY ========== */
+  .row-actions { display: flex; gap: 6px; }
+  .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; }
+  .checkbox-row label { margin: 0; text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--ink); }
+
+  @media (max-width: 800px) {
+    .stat-grid { grid-template-columns: repeat(2, 1fr); }
+    main { padding: 16px; }
+    .req-row { grid-template-columns: 1fr; }
+    .form-row.two { grid-template-columns: 1fr; }
+  }
+  @media print {
+    header.appbar, nav.tabs, .appbar-actions, .pdh-actions, .section-header .actions { display: none !important; }
+    main { padding: 0; }
+    .report-output { box-shadow: none; border: none; }
+  }
+
+  /* ========== IMPORT WORKFLOW ========== */
+  .modal.wide { max-width: 1100px; }
+  .drop-zone {
+    border: 2px dashed var(--line);
+    border-radius: 6px;
+    padding: 40px 24px;
+    text-align: center;
+    background: var(--paper);
+    transition: all .2s;
+    cursor: pointer;
+  }
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: var(--usaf-gold);
+    background: var(--paper-2);
+  }
+  .drop-zone-icon {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 32px;
+    color: var(--usaf-gold);
+    margin-bottom: 8px;
+    letter-spacing: -2px;
+  }
+  .drop-zone h3 {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 6px;
+  }
+  .drop-zone p {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .parse-status {
+    padding: 12px 16px;
+    background: var(--paper);
+    border-left: 4px solid var(--usaf-blue);
+    margin-bottom: 14px;
+    font-size: 13px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .parse-status.warn { border-left-color: var(--amber); background: var(--amber-bg); }
+  .parse-status.error { border-left-color: var(--red); background: var(--red-bg); color: var(--red); }
+  .preview-table {
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 14px;
+  }
+  .preview-row {
+    display: grid;
+    grid-template-columns: 32px 2fr 1fr 100px 90px 1fr 32px;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+    align-items: center;
+    background: white;
+    font-size: 13px;
+  }
+  .preview-row:last-child { border-bottom: none; }
+  .preview-row:nth-child(even) { background: var(--paper); }
+  .preview-row.header {
+    background: var(--paper-2);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    font-weight: 700;
+  }
+  .preview-row input, .preview-row select {
+    padding: 5px 7px;
+    font-size: 12px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    width: 100%;
+  }
+  .preview-row input[type="checkbox"] {
+    width: 16px; height: 16px;
+    accent-color: var(--usaf-blue);
+  }
+  .preview-row .btn-remove {
+    background: none;
+    border: none;
+    color: var(--red);
+    font-size: 18px;
+    cursor: pointer;
+    padding: 0;
+  }
+  .mapping-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    padding: 14px;
+    background: var(--paper);
+    border-radius: 4px;
+    margin-bottom: 14px;
+  }
+  .mapping-grid label { font-size: 10px; }
+  .mapping-grid select { padding: 6px 8px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<header class="appbar">
+  <div class="brand">
+    <div class="brand-mark">CSS</div>
+    <div>
+      <h1>In/Out-Processing Tracker</h1>
+      <p>Commander's Support Staff &middot; Personnel Throughput</p>
+    </div>
+  </div>
+  <div class="appbar-actions">
+    <button id="btn-export">Export Data</button>
+    <button id="btn-import">Import Data</button>
+    <input type="file" id="file-import" accept=".json" style="display:none">
+  </div>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="dashboard">Dashboard</button>
+  <button class="tab" data-tab="personnel">Personnel</button>
+  <button class="tab" data-tab="notifications">Notifications</button>
+  <button class="tab" data-tab="reports">Reports</button>
+  <button class="tab" data-tab="library">Checklist Library</button>
+</nav>
+
+<main>
+
+  <!-- DASHBOARD -->
+  <section class="panel active" id="panel-dashboard">
+    <div class="stat-grid" id="stat-grid"></div>
+    <div class="section-header">
+      <h2>Active Personnel — Status Overview</h2>
+    </div>
+    <div id="dashboard-list"></div>
+  </section>
+
+  <!-- PERSONNEL -->
+  <section class="panel" id="panel-personnel">
+    <div class="section-header">
+      <h2>Personnel Roster</h2>
+      <div class="actions">
+        <button class="btn btn-primary" id="btn-new-person">+ New Personnel Record</button>
+      </div>
+    </div>
+    <div id="personnel-list"></div>
+  </section>
+
+  <!-- NOTIFICATIONS -->
+  <section class="panel" id="panel-notifications">
+    <div class="section-header">
+      <h2>Due Date Notifications</h2>
+      <div class="actions">
+        <select id="notif-filter" class="btn">
+          <option value="all">All Active</option>
+          <option value="overdue">Overdue Only</option>
+          <option value="dueSoon">Due Within 7 Days</option>
+        </select>
+        <button class="btn btn-gold" id="btn-export-all-emails">Generate All Email Drafts</button>
+      </div>
+    </div>
+    <div id="notif-list"></div>
+  </section>
+
+  <!-- REPORTS -->
+  <section class="panel" id="panel-reports">
+    <div class="section-header">
+      <h2>Status Reports</h2>
+      <div class="actions">
+        <select id="report-person" class="btn"></select>
+        <button class="btn btn-primary" id="btn-generate-report">Generate Report</button>
+        <button class="btn" id="btn-print-report">Print / Save PDF</button>
+      </div>
+    </div>
+    <div id="report-output-wrap"></div>
+  </section>
+
+  <!-- LIBRARY -->
+  <section class="panel" id="panel-library">
+    <div class="section-header">
+      <h2>Checklist Item Library</h2>
+      <div class="actions">
+        <button class="btn btn-gold" id="btn-import-checklist">⬆ Import Checklist (Word/Excel)</button>
+        <button class="btn btn-primary" id="btn-new-item">+ Add Custom Item</button>
+        <button class="btn btn-danger" id="btn-reset-library">Reset to Defaults</button>
+      </div>
+    </div>
+    <p class="hint" style="margin-bottom:14px">Manage the master library of in/out-processing requirements. Import existing checklists from Word or Excel files, or add items individually.</p>
+    <div id="library-list"></div>
+  </section>
+
+</main>
+
+<!-- ========== MODALS ========== -->
+
+<!-- New Personnel Modal -->
+<div class="modal-backdrop" id="modal-person">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modal-person-title">New Personnel Record</h3>
+      <button class="modal-close" data-close="modal-person">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="person-id">
+      <div class="form-row two">
+        <div>
+          <label>Rank / Grade</label>
+          <input type="text" id="person-rank" placeholder="e.g., SSgt, TSgt, Capt">
+        </div>
+        <div>
+          <label>Full Name</label>
+          <input type="text" id="person-name" placeholder="Last, First MI">
+        </div>
+      </div>
+      <div class="form-row two">
+        <div>
+          <label>Process Type</label>
+          <select id="person-type">
+            <option value="in">IN-PROCESSING</option>
+            <option value="out">OUT-PROCESSING</option>
+          </select>
+        </div>
+        <div>
+          <label>Report / Departure Date</label>
+          <input type="date" id="person-date">
+        </div>
+      </div>
+      <div class="form-row two">
+        <div>
+          <label>AFSC</label>
+          <input type="text" id="person-afsc" placeholder="e.g., 1S0X1">
+        </div>
+        <div>
+          <label>Unit / Section</label>
+          <input type="text" id="person-unit" placeholder="e.g., 728 AMS/SE">
+        </div>
+      </div>
+      <div class="form-row two">
+        <div>
+          <label>Email (Mil)</label>
+          <input type="email" id="person-email" placeholder="first.last.x@us.af.mil">
+        </div>
+        <div>
+          <label>Sponsor / Supervisor</label>
+          <input type="text" id="person-sponsor" placeholder="Last, First MI">
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Notes</label>
+        <textarea id="person-notes" placeholder="Optional notes about this individual"></textarea>
+      </div>
+
+      <div class="form-row" id="checklist-picker-wrap">
+        <label>Assigned Checklist Items</label>
+        <p class="hint">Select which requirements to load for this person. You can mix in-processing and out-processing items as needed.</p>
+        <div class="checklist-picker" id="checklist-picker"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close="modal-person">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-person">Save Personnel Record</button>
+    </div>
+  </div>
+</div>
+
+<!-- Library Item Modal -->
+<div class="modal-backdrop" id="modal-item">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modal-item-title">Add Checklist Item</h3>
+      <button class="modal-close" data-close="modal-item">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="item-id">
+      <div class="form-row">
+        <label>Item Name</label>
+        <input type="text" id="item-name" placeholder="e.g., Finance In-Processing">
+      </div>
+      <div class="form-row two">
+        <div>
+          <label>Category</label>
+          <input type="text" id="item-category" placeholder="e.g., Finance, MPF, Medical">
+        </div>
+        <div>
+          <label>Applies To</label>
+          <select id="item-applies">
+            <option value="both">Both In &amp; Out</option>
+            <option value="in">In-Processing Only</option>
+            <option value="out">Out-Processing Only</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row two">
+        <div>
+          <label>Default Suspense (days from report/departure)</label>
+          <input type="text" id="item-suspense" placeholder="e.g., 7" inputmode="numeric">
+          <p class="hint">For in-processing: days after report date. For out-processing: days before departure date.</p>
+        </div>
+        <div>
+          <label>POC / Office</label>
+          <input type="text" id="item-poc" placeholder="e.g., MPF, FSS">
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Description / Instructions</label>
+        <textarea id="item-desc" placeholder="What this requirement entails"></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close="modal-item">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-item">Save Item</button>
+    </div>
+  </div>
+</div>
+
+<!-- Email Draft Modal -->
+<div class="modal-backdrop" id="modal-email">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Email Draft</h3>
+      <button class="modal-close" data-close="modal-email">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <label>To</label>
+        <input type="text" id="email-to" readonly>
+      </div>
+      <div class="form-row">
+        <label>Subject</label>
+        <input type="text" id="email-subject" readonly>
+      </div>
+      <div class="form-row">
+        <label>Body</label>
+        <textarea id="email-body" rows="14" readonly></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="btn-copy-email">Copy to Clipboard</button>
+      <button class="btn btn-gold" id="btn-mailto">Open in Email Client</button>
+      <button class="btn" data-close="modal-email">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Import Checklist Modal -->
+<div class="modal-backdrop" id="modal-import">
+  <div class="modal wide">
+    <div class="modal-head">
+      <h3>Import Checklist from Word or Excel</h3>
+      <button class="modal-close" data-close="modal-import">×</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- STEP 1: Upload -->
+      <div id="import-step-upload">
+        <div class="drop-zone" id="drop-zone">
+          <div class="drop-zone-icon">[ + ]</div>
+          <h3>Drop a Word or Excel file here</h3>
+          <p>Supported: .docx, .xlsx, .xls &middot; or click to browse</p>
+          <input type="file" id="import-file" accept=".docx,.xlsx,.xls" style="display:none">
+        </div>
+        <div style="margin-top:18px">
+          <p class="hint" style="margin-bottom:8px"><strong>What works best:</strong></p>
+          <ul style="font-size:12px; color: var(--muted); padding-left: 20px; line-height: 1.7;">
+            <li><strong>Excel:</strong> First row as column headers (Item Name, Category, POC, Suspense, etc.). Each row = one checklist item.</li>
+            <li><strong>Word tables:</strong> Tables with headers in the first row, items in following rows.</li>
+            <li><strong>Word lists:</strong> Bulleted or numbered lists. The system will extract each line as an item.</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- STEP 2: Mapping (Excel only) -->
+      <div id="import-step-mapping" style="display:none">
+        <div class="parse-status" id="parse-status-mapping"></div>
+        <h4 style="font-size:13px; text-transform:uppercase; letter-spacing:1px; color:var(--usaf-blue); margin-bottom:8px;">Column Mapping</h4>
+        <p class="hint" style="margin-bottom:10px">We auto-detected these columns. Adjust if needed:</p>
+        <div class="mapping-grid" id="mapping-grid"></div>
+        <div style="display:flex; gap:8px; justify-content:flex-end;">
+          <button class="btn" onclick="resetImport()">← Start Over</button>
+          <button class="btn btn-primary" onclick="applyMapping()">Continue to Preview →</button>
+        </div>
+      </div>
+
+      <!-- STEP 3: Preview -->
+      <div id="import-step-preview" style="display:none">
+        <div class="parse-status" id="parse-status-preview"></div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <h4 style="font-size:13px; text-transform:uppercase; letter-spacing:1px; color:var(--usaf-blue);">Preview &amp; Edit Items</h4>
+          <div style="display:flex; gap:6px;">
+            <button class="btn btn-sm" onclick="togglePreviewAll(true)">Select All</button>
+            <button class="btn btn-sm" onclick="togglePreviewAll(false)">Deselect All</button>
+          </div>
+        </div>
+        <div class="preview-table">
+          <div class="preview-row header">
+            <div>✓</div>
+            <div>Item Name</div>
+            <div>Category</div>
+            <div>Applies</div>
+            <div>Suspense</div>
+            <div>POC</div>
+            <div></div>
+          </div>
+          <div id="preview-body"></div>
+        </div>
+        <p class="hint" id="preview-summary"></p>
+      </div>
+
+    </div>
+    <div class="modal-foot" id="import-foot-upload">
+      <button class="btn" data-close="modal-import">Cancel</button>
+    </div>
+    <div class="modal-foot" id="import-foot-preview" style="display:none">
+      <button class="btn" onclick="resetImport()">← Start Over</button>
+      <button class="btn" data-close="modal-import">Cancel</button>
+      <button class="btn btn-gold" id="btn-import-merge">Add Selected to Library</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
